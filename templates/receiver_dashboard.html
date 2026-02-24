@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pacifico&family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Receiver Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+
+  <!-- ✅ IMPORTANT: load your app.js (feed + submit logic) -->
+  <script src="/static/app.js" defer></script>
+
+  <!-- Leaflet (map) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    #map { height: 320px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.12); }
+    .muted { opacity: 0.75; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="row">
+      <h1>Receiver Dashboard</h1>
+      <a class="btn secondary" href="/logout">Logout</a>
+    </div>
+
+    <p>Welcome, <b>{{ user.name }}</b> ({{ user.email }})</p>
+
+    <!-- ✅ Location card -->
+    <div class="card" id="locationCard">
+      <h2>Your Location</h2>
+      <p class="muted">
+        Add a safe location description + optionally pin on the map.
+        “Use current location” will ask permission.
+      </p>
+
+      <!-- We keep form fields but we submit via fetch to /api/receiver/location -->
+      <form method="POST" action="/receiver/location" id="locForm">
+        <label>
+          Location details (text)
+          <input name="location_text" id="location_text"
+                 placeholder="Example: Near Curtin Uni library entrance"
+                 value="{{ user.location_text or '' }}">
+        </label>
+
+        <input type="hidden" name="lat" id="lat" value="{{ user.lat or '' }}">
+        <input type="hidden" name="lng" id="lng" value="{{ user.lng or '' }}">
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+          <button type="button" class="btn" id="useCurrentBtn">Use current location</button>
+          <button type="button" class="btn" id="clearPinBtn">Clear pin</button>
+          <button type="button" class="btn primary" id="saveBtn">Save location</button>
+        </div>
+
+        <div class="muted" id="locStatus" style="margin-top:8px;"></div>
+      </form>
+
+      <div style="margin-top:12px;">
+        <div id="map"></div>
+        <div class="muted" style="margin-top:8px;">
+          Tip: Click the map to drop a pin. Drag the pin to adjust.
+        </div>
+      </div>
+    </div>
+
+    <!-- ✅ Availability screen -->
+    <div class="card" id="availabilityCard" style="display:none;">
+      <h2>Service Availability</h2>
+      <p class="muted" id="availabilityReason"></p>
+
+      <div id="availabilityDetails" class="muted" style="white-space:pre-line; margin-top:10px;"></div>
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+        <button type="button" class="btn" id="editLocationBtn">Edit location</button>
+        <button type="button" class="btn primary" id="continueBtn">Continue to request</button>
+      </div>
+    </div>
+
+    <!-- ✅ Request card (hidden until Continue) -->
+    <div class="card" id="requestCard" style="display:none;">
+      <h2>Create Request</h2>
+      <p class="muted">Choose date, duration, time, and confirm fixed hourly wage.</p>
+
+      <form id="requestForm" class="requestForm">
+        <label class="muted">Title</label>
+        <input id="title" name="title" placeholder="Example: Need someone to accompany me home" required />
+
+        <label class="muted" style="margin-top:10px;">Category</label>
+        <input id="category" name="category" placeholder="Example: Escort / Emergency / Transport" required />
+
+        <label class="muted" style="margin-top:10px;">Details</label>
+        <textarea id="details" name="details" rows="3" placeholder="Add helpful details..."></textarea>
+
+        <!-- ✅ Schedule UI -->
+        <div class="scheduleBlock">
+          <div class="sectionTitle">Select Date</div>
+          <div class="chipRow" id="dateRow"></div>
+
+          <div class="sectionTitle">Duration</div>
+          <div class="cardRow" id="durationRow"></div>
+
+          <div class="sectionTitle">Start Time</div>
+          <div class="timeGrid" id="timeGrid"></div>
+          <div class="linkLike" id="viewMoreTimes">View more ›</div>
+
+          <div class="sectionTitle">Hourly Wage (Fixed for all tasks)</div>
+          <div class="wageBox">
+            <div class="wageLeft">
+              <div class="muted">Hourly rate</div>
+              <div class="wageInputRow">
+                <span class="currency">₹</span>
+                <input id="hourlyWage" type="number" min="0" step="1" value="150" />
+                <span class="muted">/hour</span>
+              </div>
+            </div>
+            <div class="wageRight">
+              <div class="muted">Estimated total</div>
+              <div class="wageTotal" id="totalCost">₹0</div>
+            </div>
+          </div>
+
+          <!-- Hidden fields consumed by app.js payload -->
+          <input type="hidden" name="scheduled_date" id="scheduled_date">
+          <input type="hidden" name="scheduled_time" id="scheduled_time">
+          <input type="hidden" name="duration_min" id="duration_min">
+          <input type="hidden" name="hourly_wage" id="hourly_wage">
+
+          <div class="muted" id="scheduleMsg" style="margin-top:10px;"></div>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+          <button class="btn primary" type="submit">Submit Request</button>
+          <button class="btn" type="button" id="refreshBtn">Refresh Feed</button>
+        </div>
+      </form>
+
+      <div class="card" style="margin-top:14px;">
+        <div class="row" style="align-items:center;">
+          <h3 style="margin:0;">Recent Requests</h3>
+          <button class="btn" type="button" id="sosBtn">SOS</button>
+        </div>
+        <div id="msg" class="muted" style="margin-top:8px;"></div>
+        <div id="feedList" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <p><a href="/">Home</a></p>
+  </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // Screen switching elements
+  const locationCard = document.getElementById("locationCard");
+  const availabilityCard = document.getElementById("availabilityCard");
+  const requestCard = document.getElementById("requestCard");
+
+  const availabilityReason = document.getElementById("availabilityReason");
+  const availabilityDetails = document.getElementById("availabilityDetails");
+  const editLocationBtn = document.getElementById("editLocationBtn");
+  const continueBtn = document.getElementById("continueBtn");
+
+  // Map inputs
+  const latInput = document.getElementById("lat");
+  const lngInput = document.getElementById("lng");
+  const locStatus = document.getElementById("locStatus");
+
+  // Default center
+  const defaultLat = -31.9523;
+  const defaultLng = 115.8613;
+
+  const savedLat = parseFloat(latInput.value);
+  const savedLng = parseFloat(lngInput.value);
+
+  const startLat = Number.isFinite(savedLat) ? savedLat : defaultLat;
+  const startLng = Number.isFinite(savedLng) ? savedLng : defaultLng;
+
+  // --- Leaflet map ---
+  const map = L.map('map').setView([startLat, startLng], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  // If Leaflet loads before layout, it can appear blank. This fixes it.
+  setTimeout(() => map.invalidateSize(), 150);
+
+  let marker = null;
+
+  function setMarker(lat, lng, zoomTo=true) {
+    latInput.value = lat;
+    lngInput.value = lng;
+
+    if (!marker) {
+      marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+      marker.on('dragend', () => {
+        const pos = marker.getLatLng();
+        latInput.value = pos.lat.toFixed(6);
+        lngInput.value = pos.lng.toFixed(6);
+        locStatus.textContent = `Pin updated: ${latInput.value}, ${lngInput.value}`;
+      });
+    } else {
+      marker.setLatLng([lat, lng]);
+    }
+
+    if (zoomTo) map.setView([lat, lng], 16);
+    locStatus.textContent = `Pin set: ${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+  }
+
+  // If already saved, show marker
+  if (Number.isFinite(savedLat) && Number.isFinite(savedLng)) {
+    setMarker(savedLat, savedLng, false);
+  }
+
+  // Click map to place marker
+  map.on('click', (e) => setMarker(e.latlng.lat, e.latlng.lng, false));
+
+  // Use current location
+  document.getElementById("useCurrentBtn").addEventListener("click", () => {
+    locStatus.textContent = "Requesting location permission…";
+    if (!navigator.geolocation) {
+      locStatus.textContent = "Geolocation not supported by your browser.";
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setMarker(pos.coords.latitude, pos.coords.longitude, true);
+        locStatus.textContent = "Current location captured. Save to store it.";
+      },
+      () => locStatus.textContent = "Could not get location (permission denied or unavailable).",
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+
+  // Clear pin
+  document.getElementById("clearPinBtn").addEventListener("click", () => {
+    latInput.value = "";
+    lngInput.value = "";
+    locStatus.textContent = "Pin cleared. Save to remove stored pin.";
+    if (marker) {
+      map.removeLayer(marker);
+      marker = null;
+    }
+  });
+
+  // Edit location
+  editLocationBtn.addEventListener("click", () => {
+    requestCard.style.display = "none";
+    availabilityCard.style.display = "none";
+    locationCard.style.display = "block";
+    setTimeout(() => map.invalidateSize(), 150);
+  });
+
+  // ✅ Continue: show request card + unlock + init schedule ONCE
+  let scheduleInited = false;
+  continueBtn.addEventListener("click", () => {
+    requestCard.style.display = "block";
+    availabilityCard.style.display = "none";
+
+    if (window.unlockRequests) window.unlockRequests();
+
+    if (!scheduleInited && window.__initScheduleUI) {
+      window.__initScheduleUI();
+      scheduleInited = true;
+    }
+
+    requestCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  // Save location + check service (switch to availability screen)
+  document.getElementById("saveBtn").addEventListener("click", async () => {
+    locStatus.textContent = "Saving…";
+
+    const payload = {
+      location_text: document.getElementById("location_text").value.trim(),
+      lat: latInput.value ? parseFloat(latInput.value) : null,
+      lng: lngInput.value ? parseFloat(lngInput.value) : null
+    };
+
+    try {
+      const res = await fetch("/api/receiver/location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const out = await res.json().catch(() => ({}));
+
+      if (!res.ok || !out.ok) {
+        locStatus.textContent = "Save failed.";
+        alert(out.error || "Could not save location.");
+        return;
+      }
+
+      locStatus.textContent = "Saved ✅";
+
+      let details = `In range: ${out.providers_in_range ?? 0}`;
+
+      if (out.providers_list && out.providers_list.length) {
+        details += "\n\nNearest providers:\n" +
+          out.providers_list
+            .map(p => `${p.name} • ${p.distance_km} km (radius ${p.radius_km} km)`)
+            .join("\n");
+      } else {
+        details += `\nConfigured providers: ${out.providers_configured ?? "?"} / Total: ${out.providers_total ?? "?"}`;
+        if (out.nearest_provider_km != null) details += `\nNearest provider: ${out.nearest_provider_km} km`;
+      }
+
+      availabilityReason.textContent = out.reason || (out.can_serve ? "Service is available." : "Service is not available.");
+      availabilityDetails.textContent = details;
+
+      locationCard.style.display = "none";
+      requestCard.style.display = "none";
+      availabilityCard.style.display = "block";
+
+    } catch (e) {
+      locStatus.textContent = "Network error.";
+      alert("Network error while saving location.");
+    }
+  });
+
+  // ============================
+  // ✅ Schedule UI initializer
+  // ============================
+  window.__initScheduleUI = function () {
+    const dateRow = document.getElementById("dateRow");
+    const durationRow = document.getElementById("durationRow");
+    const timeGrid = document.getElementById("timeGrid");
+    const viewMoreTimes = document.getElementById("viewMoreTimes");
+    const scheduleMsg = document.getElementById("scheduleMsg");
+
+    if (!dateRow || !durationRow || !timeGrid) return;
+
+    const scheduledDateInput = document.getElementById("scheduled_date");
+    const scheduledTimeInput = document.getElementById("scheduled_time");
+    const durationMinInput = document.getElementById("duration_min");
+    const hourlyWageInput = document.getElementById("hourlyWage");
+    const hourlyWageHidden = document.getElementById("hourly_wage");
+    const totalCostEl = document.getElementById("totalCost");
+
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const weekday = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+
+    function formatISODate(d) {
+      return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+    }
+
+    const now = new Date();
+    const dates = [];
+    for (let i=0; i<4; i++) {
+      const d = new Date(now);
+      d.setDate(now.getDate() + i);
+      dates.push(d);
+    }
+
+    const durations = [
+      { min: 60, label: "60 min" },
+      { min: 90, label: "90 min" },
+      { min: 120, label: "2 hrs" },
+      { min: 150, label: "2.5 hrs" }
+    ];
+
+    let times = ["07:15","07:30","07:45","08:00","08:15","08:30"];
+    const moreTimes = ["08:45","09:00","09:15","09:30","09:45","10:00"];
+
+    const state = {
+      dateISO: formatISODate(dates[0]),
+      timeHHMM: times[0],
+      durationMin: durations[0].min,
+      hourlyWage: Number(hourlyWageInput?.value || 150)
+    };
+
+    function calcTotal() {
+      const hours = (state.durationMin || 0) / 60;
+      const total = Math.round(hours * (state.hourlyWage || 0));
+      totalCostEl.textContent = `₹${total}`;
+    }
+
+    function syncHidden() {
+      scheduledDateInput.value = state.dateISO;
+      scheduledTimeInput.value = state.timeHHMM;
+      durationMinInput.value = String(state.durationMin);
+      hourlyWageHidden.value = String(state.hourlyWage || 0);
+    }
+
+    function setMsg() {
+      scheduleMsg.textContent =
+        `Selected: ${state.dateISO} at ${state.timeHHMM}, ${state.durationMin} min • ₹${state.hourlyWage}/hr`;
+    }
+
+    // Render date chips
+    dateRow.innerHTML = dates.map((d, idx) => {
+      const iso = formatISODate(d);
+      const dayNum = d.getDate();
+      const wd = weekday[d.getDay()];
+      if (idx === 1) {
+        return `
+          <div class="chip" data-date="${iso}">
+            <div class="big">Tomorrow</div>
+            <div class="small">${dayNum} ${wd}</div>
+          </div>
+        `;
+      }
+      return `
+        <div class="chip" data-date="${iso}">
+          <div class="big">${dayNum}</div>
+          <div class="small">${wd}</div>
+        </div>
+      `;
+    }).join("");
+
+    // Render duration cards
+    durationRow.innerHTML = durations.map((d) => `
+      <div class="durCard" data-dur="${d.min}">
+        <div class="durTop">${d.label}</div>
+        <div class="durBottom">₹<span class="durPrice">0</span>
+          <span class="strike">₹<span class="durStrike">0</span></span>
+        </div>
+      </div>
+    `).join("");
+
+    function renderTimes() {
+      timeGrid.innerHTML = times.map(t => {
+        const [hh, mm] = t.split(":").map(Number);
+        const ampm = hh >= 12 ? "PM" : "AM";
+        const hh12 = ((hh + 11) % 12) + 1;
+        return `<div class="timeBtn" data-time="${t}">${pad2(hh12)}:${pad2(mm)} ${ampm}</div>`;
+      }).join("");
+      wireTimes();
+      highlight();
+    }
+
+    function updateDurationPrices() {
+      const wage = state.hourlyWage || 0;
+      document.querySelectorAll(".durCard").forEach(card => {
+        const mins = Number(card.getAttribute("data-dur"));
+        const hours = mins / 60;
+        const price = Math.round(hours * wage);
+        const strike = Math.round(price * 1.4);
+        card.querySelector(".durPrice").textContent = price;
+        card.querySelector(".durStrike").textContent = strike;
+      });
+    }
+
+    function highlight() {
+      document.querySelectorAll(".chip").forEach(c => {
+        c.classList.toggle("selected", c.getAttribute("data-date") === state.dateISO);
+      });
+      document.querySelectorAll(".durCard").forEach(c => {
+        c.classList.toggle("selected", Number(c.getAttribute("data-dur")) === state.durationMin);
+      });
+      document.querySelectorAll(".timeBtn").forEach(c => {
+        c.classList.toggle("selected", c.getAttribute("data-time") === state.timeHHMM);
+      });
+    }
+
+    function wireDates() {
+      document.querySelectorAll(".chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+          state.dateISO = chip.getAttribute("data-date");
+          highlight();
+          setMsg();
+          syncHidden();
+        });
+      });
+    }
+
+    function wireDurations() {
+      document.querySelectorAll(".durCard").forEach(card => {
+        card.addEventListener("click", () => {
+          state.durationMin = Number(card.getAttribute("data-dur"));
+          highlight();
+          calcTotal();
+          setMsg();
+          syncHidden();
+        });
+      });
+    }
+
+    function wireTimes() {
+      document.querySelectorAll(".timeBtn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          state.timeHHMM = btn.getAttribute("data-time");
+          highlight();
+          setMsg();
+          syncHidden();
+        });
+      });
+    }
+
+    viewMoreTimes?.addEventListener("click", () => {
+      times = times.concat(moreTimes);
+      renderTimes();
+      viewMoreTimes.style.display = "none";
+    });
+
+    hourlyWageInput?.addEventListener("input", () => {
+      state.hourlyWage = Number(hourlyWageInput.value || 0);
+      updateDurationPrices();
+      calcTotal();
+      setMsg();
+      syncHidden();
+    });
+
+    // Initial paint
+    wireDates();
+    wireDurations();
+    renderTimes();
+    updateDurationPrices();
+    calcTotal();
+    highlight();
+    setMsg();
+    syncHidden();
+  };
+});
+</script>
+
+</body>
+</html>
