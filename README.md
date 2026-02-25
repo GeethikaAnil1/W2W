@@ -47,66 +47,7 @@ it shows the history of service requested with the service requested ,date and t
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/2295e000-8c87-44eb-b3b0-20c17392be0e" />
 It shows that their is separate clean and clear login and signup page for both the sender and reciever making it easy to use.
 API Documentation
-Base URL: https://women-to-women-1.onrender.com
-Save Receiver Location + Check Availability
-POST /api/receiver/location
-Description:
-1.Saves receiver location and checks if providers are available within radius.
-Copy code
-{
-  "location_text": "Perth CBD",
-  "lat": -31.9523,
-  "lng": 115.8613
-}
-Response:
-{
-  "ok": true,
-  "can_serve": true,
-  "providers_in_range": 2,
-  "providers_total": 5,
-  "reason": "Service is available for your location."
-}
-2. Create Service Request
-POST /api/requests
-Description:
-Creates a new service request by receiver.
-Copy code
-{
-  "title": "Home Cleaning",
-  "category": "Cleaning",
-  "details": "Need kitchen cleaning",
-  "scheduled_date": "2026-02-25",
-  "scheduled_time": "10:00",
-  "duration_min": 120,
-  "hourly_wage": 25
-}
-Response:
-{
-  "ok": true,
-  "id": 12
-}
-3️ Get Receiver Requests
-GET /api/requests
-Description:
-Returns logged-in user's requests.
-Response:
-[
-  {
-    "id": 12,
-    "title": "Home Cleaning",
-    "status": "Open",
-    "created_at": "2026-02-21T10:30:00"
-  }
-]
-4️ Mark Request as Serviced
-POST /api/requests/<req_id>/resolve
-Description:
-Marks request as serviced (provider or receiver authorized).
-Response:
-{
-  "ok": true,
-  "status": "Serviced"
-}
+
 
 Diagrams
 System Architecture:
